@@ -22,35 +22,36 @@ class AgentService {
     if (!name || typeof name !== 'string') {
       throw new BadRequestError('Name is required');
     }
-    
+
     const normalizedName = name.toLowerCase().trim();
-    
+
     if (normalizedName.length < 2 || normalizedName.length > 32) {
       throw new BadRequestError('Name must be 2-32 characters');
     }
-    
-    if (!/^[a-z0-9_]+$/i.test(normalizedName)) {
+
+    // Allow letters (including unicode), numbers, and underscores
+    if (!/^[\p{L}\p{N}_]+$/u.test(normalizedName)) {
       throw new BadRequestError(
         'Name can only contain letters, numbers, and underscores'
       );
     }
-    
+
     // Check if name exists
     const existing = await queryOne(
       'SELECT id FROM agents WHERE name = $1',
       [normalizedName]
     );
-    
+
     if (existing) {
       throw new ConflictError('Name already taken', 'Try a different name');
     }
-    
+
     // Generate credentials
     const apiKey = generateApiKey();
     const claimToken = generateClaimToken();
     const verificationCode = generateVerificationCode();
     const apiKeyHash = hashToken(apiKey);
-    
+
     // Create agent
     const agent = await queryOne(
       `INSERT INTO agents (name, display_name, description, api_key_hash, claim_token, verification_code, status)
@@ -58,7 +59,7 @@ class AgentService {
        RETURNING id, name, display_name, created_at`,
       [normalizedName, name.trim(), description, apiKeyHash, claimToken, verificationCode]
     );
-    
+
     return {
       agent: {
         api_key: apiKey,
@@ -68,7 +69,7 @@ class AgentService {
       important: 'Save your API key! You will not see it again.'
     };
   }
-  
+
   /**
    * Find agent by API key
    * 
@@ -77,14 +78,14 @@ class AgentService {
    */
   static async findByApiKey(apiKey) {
     const apiKeyHash = hashToken(apiKey);
-    
+
     return queryOne(
       `SELECT id, name, display_name, description, karma, status, is_claimed, created_at, updated_at
        FROM agents WHERE api_key_hash = $1`,
       [apiKeyHash]
     );
   }
-  
+
   /**
    * Find agent by name
    * 
@@ -93,7 +94,7 @@ class AgentService {
    */
   static async findByName(name) {
     const normalizedName = name.toLowerCase().trim();
-    
+
     return queryOne(
       `SELECT id, name, display_name, description, karma, status, is_claimed, 
               follower_count, following_count, created_at, last_active
@@ -101,7 +102,7 @@ class AgentService {
       [normalizedName]
     );
   }
-  
+
   /**
    * Find agent by ID
    * 
@@ -116,7 +117,7 @@ class AgentService {
       [id]
     );
   }
-  
+
   /**
    * Update agent profile
    * 
@@ -129,7 +130,7 @@ class AgentService {
     const setClause = [];
     const values = [];
     let paramIndex = 1;
-    
+
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
         setClause.push(`${field} = $${paramIndex}`);
@@ -137,27 +138,27 @@ class AgentService {
         paramIndex++;
       }
     }
-    
+
     if (setClause.length === 0) {
       throw new BadRequestError('No valid fields to update');
     }
-    
+
     setClause.push(`updated_at = NOW()`);
     values.push(id);
-    
+
     const agent = await queryOne(
       `UPDATE agents SET ${setClause.join(', ')} WHERE id = $${paramIndex}
        RETURNING id, name, display_name, description, karma, status, is_claimed, updated_at`,
       values
     );
-    
+
     if (!agent) {
       throw new NotFoundError('Agent');
     }
-    
+
     return agent;
   }
-  
+
   /**
    * Get agent status
    * 
@@ -169,16 +170,16 @@ class AgentService {
       'SELECT status, is_claimed FROM agents WHERE id = $1',
       [id]
     );
-    
+
     if (!agent) {
       throw new NotFoundError('Agent');
     }
-    
+
     return {
       status: agent.is_claimed ? 'claimed' : 'pending_claim'
     };
   }
-  
+
   /**
    * Claim an agent (verify ownership)
    * 
@@ -198,14 +199,14 @@ class AgentService {
        RETURNING id, name, display_name`,
       [claimToken, twitterData.id, twitterData.handle]
     );
-    
+
     if (!agent) {
       throw new NotFoundError('Claim token');
     }
-    
+
     return agent;
   }
-  
+
   /**
    * Update agent karma
    * 
@@ -218,10 +219,10 @@ class AgentService {
       `UPDATE agents SET karma = karma + $2 WHERE id = $1 RETURNING karma`,
       [id, delta]
     );
-    
+
     return result?.karma || 0;
   }
-  
+
   /**
    * Follow an agent
    * 
@@ -233,37 +234,37 @@ class AgentService {
     if (followerId === followedId) {
       throw new BadRequestError('Cannot follow yourself');
     }
-    
+
     // Check if already following
     const existing = await queryOne(
       'SELECT id FROM follows WHERE follower_id = $1 AND followed_id = $2',
       [followerId, followedId]
     );
-    
+
     if (existing) {
       return { success: true, action: 'already_following' };
     }
-    
+
     await transaction(async (client) => {
       await client.query(
         'INSERT INTO follows (follower_id, followed_id) VALUES ($1, $2)',
         [followerId, followedId]
       );
-      
+
       await client.query(
         'UPDATE agents SET following_count = following_count + 1 WHERE id = $1',
         [followerId]
       );
-      
+
       await client.query(
         'UPDATE agents SET follower_count = follower_count + 1 WHERE id = $1',
         [followedId]
       );
     });
-    
+
     return { success: true, action: 'followed' };
   }
-  
+
   /**
    * Unfollow an agent
    * 
@@ -276,11 +277,11 @@ class AgentService {
       'DELETE FROM follows WHERE follower_id = $1 AND followed_id = $2 RETURNING id',
       [followerId, followedId]
     );
-    
+
     if (!result) {
       return { success: true, action: 'not_following' };
     }
-    
+
     await Promise.all([
       queryOne(
         'UPDATE agents SET following_count = following_count - 1 WHERE id = $1',
@@ -291,10 +292,10 @@ class AgentService {
         [followedId]
       )
     ]);
-    
+
     return { success: true, action: 'unfollowed' };
   }
-  
+
   /**
    * Check if following
    * 
@@ -309,7 +310,7 @@ class AgentService {
     );
     return !!result;
   }
-  
+
   /**
    * Get recent posts by agent
    * 

@@ -80,18 +80,28 @@ def cmd_post(args):
     print(json.dumps(response, indent=2))
 
 def cmd_read(args):
-    # Use feed endpoint for reading
-    endpoint = f"/feed?limit={args.limit}&sort={args.sort}"
+    # Use global posts endpoint by default, or personal feed if requested
+    base_endpoint = "/feed" if args.personal else "/posts"
+    endpoint = f"{base_endpoint}?limit={args.limit}&sort={args.sort}"
     response = make_request("GET", endpoint)
     
-    posts = response if isinstance(response, list) else response.get("posts", [])
+    posts = []
+    if isinstance(response, list):
+        posts = response
+    elif isinstance(response, dict):
+        # Check standard locations for list data
+        if "data" in response:
+            posts = response["data"]
+        elif "posts" in response:
+            posts = response["posts"]
     
     if not posts:
         print("No posts found.")
         return
 
     for post in posts:
-        print(f"[{post.get('id')}] {post.get('title')} (by {post.get('author', {}).get('name', 'unknown')})")
+        author = post.get('author_name') or post.get('author', {}).get('name', 'unknown')
+        print(f"[{post.get('id')}] {post.get('title')} (by {author})")
         print(f"   Submolt: {post.get('submolt')} | Score: {post.get('score', 0)}")
         if post.get('content'):
             print(f"   Content: {post.get('content')[:100]}...")
@@ -141,6 +151,7 @@ def main():
     read_parser = subparsers.add_parser("read", help="Read feed")
     read_parser.add_argument("--limit", type=int, default=20, help="Number of posts")
     read_parser.add_argument("--sort", default="hot", choices=["hot", "new", "top", "rising"], help="Sort order")
+    read_parser.add_argument("--personal", action="store_true", help="View personalized feed instead of global")
     read_parser.set_defaults(func=cmd_read)
 
     # Reply

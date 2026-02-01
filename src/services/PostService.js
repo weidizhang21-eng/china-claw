@@ -23,23 +23,23 @@ class PostService {
     if (!title || title.trim().length === 0) {
       throw new BadRequestError('Title is required');
     }
-    
+
     if (title.length > 300) {
       throw new BadRequestError('Title must be 300 characters or less');
     }
-    
+
     if (!content && !url) {
       throw new BadRequestError('Either content or url is required');
     }
-    
+
     if (content && url) {
       throw new BadRequestError('Post cannot have both content and url');
     }
-    
+
     if (content && content.length > 40000) {
       throw new BadRequestError('Content must be 40000 characters or less');
     }
-    
+
     // Validate URL if provided
     if (url) {
       try {
@@ -48,36 +48,36 @@ class PostService {
         throw new BadRequestError('Invalid URL format');
       }
     }
-    
+
     // Verify submolt exists
     const submoltRecord = await queryOne(
       'SELECT id FROM submolts WHERE name = $1',
       [submolt.toLowerCase()]
     );
-    
+
     if (!submoltRecord) {
       throw new NotFoundError('Submolt');
     }
-    
+
     // Create post
     const post = await queryOne(
       `INSERT INTO posts (author_id, submolt_id, submolt, title, content, url, post_type)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, title, content, url, submolt, post_type, score, comment_count, created_at`,
       [
-        authorId, 
-        submoltRecord.id, 
-        submolt.toLowerCase(), 
+        authorId,
+        submoltRecord.id,
+        submolt.toLowerCase(),
         title.trim(),
         content || null,
         url || null,
         url ? 'link' : 'text'
       ]
     );
-    
+
     return post;
   }
-  
+
   /**
    * Get post by ID
    * 
@@ -92,14 +92,14 @@ class PostService {
        WHERE p.id = $1`,
       [id]
     );
-    
+
     if (!post) {
       throw new NotFoundError('Post');
     }
-    
+
     return post;
   }
-  
+
   /**
    * Get feed (all posts)
    * 
@@ -112,7 +112,7 @@ class PostService {
    */
   static async getFeed({ sort = 'hot', limit = 25, offset = 0, submolt = null }) {
     let orderBy;
-    
+
     switch (sort) {
       case 'new':
         orderBy = 'p.created_at DESC';
@@ -129,17 +129,17 @@ class PostService {
         orderBy = `LOG(GREATEST(ABS(p.score), 1)) * SIGN(p.score) + EXTRACT(EPOCH FROM p.created_at) / 45000 DESC`;
         break;
     }
-    
+
     let whereClause = 'WHERE 1=1';
     const params = [limit, offset];
     let paramIndex = 3;
-    
+
     if (submolt) {
       whereClause += ` AND p.submolt = $${paramIndex}`;
       params.push(submolt.toLowerCase());
       paramIndex++;
     }
-    
+
     const posts = await queryAll(
       `SELECT p.id, p.title, p.content, p.url, p.submolt, p.post_type,
               p.score, p.comment_count, p.created_at,
@@ -151,10 +151,10 @@ class PostService {
        LIMIT $1 OFFSET $2`,
       params
     );
-    
+
     return posts;
   }
-  
+
   /**
    * Get personalized feed for agent
    * Posts from subscribed submolts and followed agents
@@ -165,7 +165,7 @@ class PostService {
    */
   static async getPersonalizedFeed(agentId, { sort = 'hot', limit = 25, offset = 0 }) {
     let orderBy;
-    
+
     switch (sort) {
       case 'new':
         orderBy = 'p.created_at DESC';
@@ -178,24 +178,25 @@ class PostService {
         orderBy = `LOG(GREATEST(ABS(p.score), 1)) * SIGN(p.score) + EXTRACT(EPOCH FROM p.created_at) / 45000 DESC`;
         break;
     }
-    
+
     const posts = await queryAll(
-      `SELECT DISTINCT p.id, p.title, p.content, p.url, p.submolt, p.post_type,
+      `SELECT p.id, p.title, p.content, p.url, p.submolt, p.post_type,
               p.score, p.comment_count, p.created_at,
               a.name as author_name, a.display_name as author_display_name
        FROM posts p
        JOIN agents a ON p.author_id = a.id
-       LEFT JOIN subscriptions s ON p.submolt_id = s.submolt_id AND s.agent_id = $1
-       LEFT JOIN follows f ON p.author_id = f.followed_id AND f.follower_id = $1
-       WHERE s.id IS NOT NULL OR f.id IS NOT NULL
+       WHERE 
+         (EXISTS (SELECT 1 FROM subscriptions s WHERE s.submolt_id = p.submolt_id AND s.agent_id = $1)
+          OR
+          EXISTS (SELECT 1 FROM follows f WHERE f.followed_id = p.author_id AND f.follower_id = $1))
        ORDER BY ${orderBy}
        LIMIT $2 OFFSET $3`,
       [agentId, limit, offset]
     );
-    
+
     return posts;
   }
-  
+
   /**
    * Delete a post
    * 
@@ -208,18 +209,18 @@ class PostService {
       'SELECT author_id FROM posts WHERE id = $1',
       [postId]
     );
-    
+
     if (!post) {
       throw new NotFoundError('Post');
     }
-    
+
     if (post.author_id !== agentId) {
       throw new ForbiddenError('You can only delete your own posts');
     }
-    
+
     await queryOne('DELETE FROM posts WHERE id = $1', [postId]);
   }
-  
+
   /**
    * Update post score
    * 
@@ -232,10 +233,10 @@ class PostService {
       'UPDATE posts SET score = score + $2 WHERE id = $1 RETURNING score',
       [postId, delta]
     );
-    
+
     return result?.score || 0;
   }
-  
+
   /**
    * Increment comment count
    * 
@@ -248,7 +249,7 @@ class PostService {
       [postId]
     );
   }
-  
+
   /**
    * Get posts by submolt
    * 
