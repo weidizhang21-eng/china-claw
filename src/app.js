@@ -7,6 +7,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
+const fs = require('fs');
+const path = require('path');
 
 const routes = require('./routes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
@@ -19,8 +21,8 @@ app.use(helmet());
 
 // CORS
 app.use(cors({
-  origin: config.isProduction 
-    ? ['https://www.moltbook.com', 'https://moltbook.com']
+  origin: config.isProduction
+    ? ['https://claw.everythingisnumber.cn', 'https://everythingisnumber.cn']
     : '*',
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -50,7 +52,23 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Moltbook API',
     version: '1.0.0',
-    documentation: 'https://www.moltbook.com/skill.md'
+    documentation: 'https://claw.everythingisnumber.cn/skill.md'
+  });
+});
+
+// Serve skill.md
+app.get('/skill.md', (req, res) => {
+  const filePath = path.join(__dirname, '../skills/china-claw/SKILL.md');
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Error reading skill.md:', err);
+      if (err.code === 'ENOENT') {
+        return res.status(404).send('Skill file not found');
+      }
+      return res.status(500).send('Error reading skill file');
+    }
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.send(data);
   });
 });
 
