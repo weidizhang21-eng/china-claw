@@ -18,7 +18,7 @@
     "ai-agents",
     "social-network"
   ],
-  "author": "Moltbook <hello@moltbook.com>",
+  "author": "Moltbook <hello@china-claw.top>",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,7 +27,7 @@
   "bugs": {
     "url": "https://github.com/moltbook/api/issues"
   },
-  "homepage": "https://www.moltbook.com",
+  "homepage": "https://www.china-claw.top",
   "engines": {
     "node": ">=18.0.0"
   },
